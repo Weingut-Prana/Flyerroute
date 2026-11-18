@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#234b38"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="FlyerRoute"><title>FlyerRoute · prāṇa</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoT2wJvY0dI+Z0=" crossorigin="">
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#243d30;background:#f7f7f1}*{box-sizing:border-box}body{margin:0}header{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 11px) 15px 10px;background:#234b38;color:white}h1{font-size:20px;margin:0}header small{opacity:.77}button,input{font:inherit}button{border:0;background:#285f45;color:white;padding:12px;border-radius:11px;font-size:14px;font-weight:650;cursor:pointer}button:disabled{opacity:.4}button.light{background:#e4eee3;color:#26543a}button.orange{background:#bf6e2f}button.red{background:#a4473c}#map{height:53dvh;height:53vh;min-height:280px;background:#e7eee4}.panel{padding:12px 13px 24px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:12px 0}.stat{background:white;border-radius:12px;text-align:center;padding:10px 2px;box-shadow:0 1px 5px #1d392211}.stat b{display:block;font-size:19px}.stat span{font-size:11px;color:#5c7062}.progress{height:9px;border-radius:99px;background:#d9e6d9;overflow:hidden}.progress div{background:#37a36a;height:100%;width:0;transition:width .2s}#status{font-size:13px;line-height:1.45;min-height:30px;color:#45614e;margin:10px 2px}#details{color:#627269;font-size:12px;line-height:1.5;margin:7px 2px}.tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.tools button{font-size:12px;padding:9px}.legend{font-size:12px;color:#5e6e63;margin-top:8px}dialog{border:0;border-radius:15px;max-width:min(90vw,420px);padding:18px;box-shadow:0 5px 40px #0005}dialog::backdrop{background:#0006}#map .leaflet-control-attribution{font-size:9px}#map .leaflet-container{touch-action:pan-x pan-y} .pill{font-size:12px;border-radius:99px;padding:5px 8px;background:#f1e2ca;color:#855321}a{color:#235c43}
+</style></head><body>
+<header><div><h1>🌿 FlyerRoute</h1><small>prāṇa · Flyer verteilen</small></div><span id="gpsBadge" class="pill">GPS aus</span></header>
+<div id="map" role="application" aria-label="Interaktive Karte"></div>
+<section class="panel">
+<div class="actions">
+<button id="areaBtn" class="light">▱ Gebiet auswählen</button>
+<button id="planBtn">↝ Route planen</button>
+<button id="gpsBtn">◎ GPS starten</button>
+<button id="locBtn" class="light">⌖ Mein Standort</button>
+</div>
+<div class="stats"><div class="stat"><b id="percent">0 %</b><span>Erledigt</span></div><div class="stat"><b id="done">0 m</b><span>Abgedeckt</span></div><div class="stat"><b id="left">0 m</b><span>Noch offen</span></div></div>
+<div class="progress"><div id="bar"></div></div>
+<p id="status" role="status">Wähle ein Gebiet: Tippe danach zwei gegenüberliegende Ecken auf die Karte.</p>
+<p id="details">Orange = offen · Grün = erledigt · Blau = vorgeschlagene Laufrichtung. Straßen antippen zum manuellen Abhaken.</p>
+<div class="tools"><button id="fitBtn" class="light">Karte zentrieren</button><button id="exportBtn" class="light">Sicherung exportieren</button><button id="importBtn" class="light">Sicherung laden</button><button id="clearBtn" class="red">Tour löschen</button><input type="file" id="importFile" accept="application/json,.json" hidden></div>
+<p id="details">Nur auf diesem Gerät gespeichert. GPS erfasst nur bei geöffneter App zuverlässig; das Begehen eines Straßenabschnitts bedeutet nicht zwangsläufig, dass dort Flyer eingeworfen wurden. Bitte nur öffentlich zugängliche Wege betreten.</p>
+</section>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(()=>{
+"use strict";
+const KEY="prana-flyerroute-v1", $=s=>document.getElementById(s);
+const empty=()=>({version:1,bounds:null,edges:[],route:[],done:{},samples:{},track:[],created:null});
+let state=empty();try{let v=JSON.parse(localStorage.getItem(KEY));if(v?.version===1)state=v}catch(e){}
+let map,areaRect,roadLayer,guideLayer,gpsLayer,userDot,accuracyCircle,areaChoosing=false,corners=[],watchId=null,lastCoord=null,firstFix=null,saveTimer=0,routeStart=null;
+const say=t=>$("status").textContent=t;
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){say("Speicher voll oder gesperrt. Bitte Sicherung exportieren.")}};
+const deferredSave=()=>{clearTimeout(saveTimer);saveTimer=setTimeout(save,500)};
+const rad=x=>x*Math.PI/180;
+function distance(a,b){let dlat=rad(b[0]-a[0]),dlon=rad(b[1]-a[1]),v=Math.sin(dlat/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dlon/2)**2;return 12742000*Math.asin(Math.min(1,Math.sqrt(v)))}
+const fmt=n=>n>=1000?(n/1000).toFixed(2)+" km":Math.round(n)+" m";
+function areaSq(b){return distance([b[0],b[1]],[b[2],b[1]])*distance([b[0],b[1]],[b[0],b[3]])/1e6}
+function distToSegment(p,a,b){const sy=111195,sx=sy*Math.cos(rad(p[0])),ax=a[1]*sx,ay=a[0]*sy,bx=b[1]*sx,by=b[0]*sy,px=p[1]*sx,py=p[0]*sy,dx=bx-ax,dy=by-ay,t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy||1)));return {meters:Math.hypot(px-ax-dx*t,py-ay-dy*t),fraction:t}}
+function drawBounds(){if(areaRect)map.removeLayer(areaRect);areaRect=null;if(state.bounds)areaRect=L.rectangle([[state.bounds[0],state.bounds[1]],[state.bounds[2],state.bounds[3]]],{color:"#266447",weight:2,fillOpacity:.06}).addTo(map)}
+function graph(edges){let g=new Map();edges.forEach((e,i)=>{for(const [a,b] of [[e.a,e.b],[e.b,e.a]]){if(!g.has(a))g.set(a,[]);g.get(a).push({to:b,idx:i,cost:e.len})}});return g}
+function dijkstra(g,start){let d=new Map([[start,0]]),previous=new Map(),queue=[[0,start]];while(queue.length){queue.sort((a,b)=>b[0]-a[0]);let [cost,u]=queue.pop();if(cost>d.get(u))continue;for(let x of g.get(u)||[]){let alt=cost+x.cost;if(alt<(d.get(x.to)??Infinity)){d.set(x.to,alt);previous.set(x.to,{node:u,idx:x.idx});queue.push([alt,x.to])}}}return {d,previous}}
+function computeRoute(edges){
+ const g=graph(edges),remaining=new Set(edges.map((_,i)=>i));let start=edges[0].a,best=Infinity,p=lastCoord||[50.006,8.005];for(let e of edges)for(let [n,coord] of [[e.a,e.p],[e.b,e.q]]){let v=distance(p,coord);if(v<best){best=v;start=n}}
+ routeStart=start;let current=start,steps=[],iterations=0;
+ while(remaining.size&&iterations++<edges.length+5){
+  const {d,previous}=dijkstra(g,current);let selected=null,score=Infinity;
+  for(let i of remaining){let e=edges[i];for(let [a,b] of [[e.a,e.b],[e.b,e.a]]){let val=d.get(a);if(val!==undefined&&val<score){score=val;selected={i,a,b}}}}
+  if(!selected){let i=remaining.values().next().value;remaining.delete(i);steps.push({jump:true,edge:i});current=edges[i].b;continue}
+  let n=selected.a,connector=[];while(n!==current){let x=previous.get(n);if(!x)break;connector.push({idx:x.idx,from:x.node,to:n,repeat:true});n=x.node}
+  steps.push(...connector.reverse(),{idx:selected.i,from:selected.a,to:selected.b,repeat:false});remaining.delete(selected.i);current=selected.b;
+ }
+ return steps
+}
+function draw(){
+ roadLayer.clearLayers();guideLayer.clearLayers();drawBounds();
+ let all=0,done=0;state.edges.forEach(e=>{all+=e.len;if(state.done[e.id])done+=e.len;let line=L.polyline([e.p,e.q],{weight:7,opacity:.88,color:state.done[e.id]?"#27a36d":"#dc8740"}).addTo(roadLayer);line.bindTooltip(e.name+" · "+fmt(e.len));line.on("click",()=>{state.done[e.id]?delete state.done[e.id]:state.done[e.id]=true;draw();save()})});
+ let pct=all?Math.round(done/all*100):0;$("percent").textContent=pct+" %";$("done").textContent=fmt(done);$("left").textContent=fmt(all-done);$("bar").style.width=pct+"%";
+ const arrows=[];for(let s of state.route){if(s.jump)continue;let e=state.edges[s.idx];if(!e)continue;let from=s.from===e.a?e.p:e.q,to=s.to===e.b?e.q:e.p;arrows.push([from,to]);}
+ // The light blue line represents the suggested traversal, including repeated links.
+ arrows.forEach(([a,b],i)=>L.polyline([a,b],{weight:2,opacity:.45,color:"#2562b8",interactive:false,dashArray:"4 7"}).addTo(guideLayer));
+ let unique=state.edges.reduce((n,e)=>n+e.len,0),walk=state.route.reduce((n,s)=>n+(s.idx==null?0:state.edges[s.idx].len),0);
+ $("details").textContent="Orange = offen · Grün = erledigt · Straßen antippen zum Abhaken. "+state.edges.length+" Abschnitte · "+fmt(unique)+" Straßen · ca. "+fmt(walk)+" vorgeschlagene Strecke (ohne Wechsel zwischen getrennten Straßennetzen).";
+}
+function parseOSM(json){
+ if(!Array.isArray(json.elements))throw Error("Keine gültigen OpenStreetMap-Daten.");
+ const nodes=new Map(),edges=[],unique=new Set();for(let x of json.elements)if(x.type==="node")nodes.set(x.id,[x.lat,x.lon]);
+ const allow=new Set(["residential","living_street","pedestrian","service","unclassified","tertiary","footway","path"]);
+ for(let w of json.elements){if(w.type!=="way"||!allow.has(w.tags?.highway)||w.tags?.access==="private"||w.tags?.access==="no"||w.tags?.service==="driveway")continue;
+  for(let i=1;i<w.nodes.length;i++){let a=w.nodes[i-1],b=w.nodes[i],p=nodes.get(a),q=nodes.get(b);if(!p||!q)continue;let mid=[(p[0]+q[0])/2,(p[1]+q[1])/2],B=state.bounds;if(mid[0]<B[0]||mid[0]>B[2]||mid[1]<B[1]||mid[1]>B[3])continue;let id=[a,b].sort((x,y)=>x-y).join("-");if(unique.has(id))continue;unique.add(id);let len=distance(p,q);if(len>2)edges.push({a,b,p,q,id,len,name:w.tags?.name||"Unbenannter Weg"})}
+ }
+ if(!edges.length)throw Error("Keine geeigneten Straßen in diesem Gebiet gefunden.");if(edges.length>450)throw Error("Zu großes Gebiet: Bitte kleiner wählen (maximal 450 Teilstücke).");return edges
+}
+async function overpass(b){
+ const query='[out:json][timeout:35];way["highway"~"^(residential|living_street|pedestrian|service|unclassified|tertiary|footway|path)$"]('+b.join(",")+');(._;>;);out body;';
+ let errors=[];for(let host of ["https://overpass.kumi.systems/api/interpreter","https://overpass-api.de/api/interpreter","https://overpass.nchc.org.tw/api/interpreter"]){try{let controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),42000);let resp;try{resp=await fetch(host,{method:"POST",body:new URLSearchParams({data:query}),signal:controller.signal})}finally{clearTimeout(timeout)}if(!resp.ok)throw Error("HTTP "+resp.status);return await resp.json()}catch(e){errors.push(e.message)}}
+ throw Error("Straßendaten konnten nicht geladen werden. Internet prüfen oder später erneut versuchen. "+errors[0])
+}
+async function plan(){
+ if(!state.bounds){say("Bitte zuerst mit zwei Punkten ein Gebiet auswählen.");return}
+ if(areaSq(state.bounds)>0.8){say("Bitte ein kleineres Gebiet auswählen (maximal 0,8 km² pro Tour).");return}
+ if(state.edges.length&&!confirm("Bestehende Tour samt Fortschritt ersetzen?"))return;
+ $("planBtn").disabled=true;say("Straßen werden von OpenStreetMap geladen …");
+ try{let json=await overpass(state.bounds),edges=parseOSM(json),route=computeRoute(edges);state={...state,edges,route,done:{},samples:{},track:[],created:new Date().toISOString()};save();draw();say("Tour berechnet! GPS starten und loslaufen. Die Reihenfolge ist eine Näherung; bei getrennten Wegen können zusätzliche Verbindungen nötig sein.");map.fitBounds(areaRect.getBounds())}
+ catch(e){say("Fehler: "+e.message)}finally{$("planBtn").disabled=false}
+}
+function chooseArea(){areaChoosing=true;corners=[];say("Tippe nacheinander zwei gegenüberliegende Ecken auf der Karte. Karte kann dazwischen verschoben werden.")}
+function onMapClick(e){
+ if(!areaChoosing)return;corners.push([e.latlng.lat,e.latlng.lng]);if(corners.length===1){say("Erste Ecke gesetzt. Jetzt die zweite Ecke wählen.");return}
+ areaChoosing=false;let [a,b]=corners;state.bounds=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])];drawBounds();save();say("Gebiet: "+areaSq(state.bounds).toFixed(2)+" km². Jetzt Route planen.")
+}
+function recordPosition(position){
+ let {latitude,longitude,accuracy}=position.coords,at=[latitude,longitude];lastCoord=at;
+ if(userDot)gpsLayer.removeLayer(userDot);if(accuracyCircle)gpsLayer.removeLayer(accuracyCircle);
+ userDot=L.circleMarker(at,{radius:7,color:"#fff",weight:3,fillColor:"#2375ff",fillOpacity:1}).addTo(gpsLayer);
+ accuracyCircle=L.circle(at,{radius:Math.max(accuracy||0,4),color:"#2c7fff",weight:1,fillOpacity:.04}).addTo(gpsLayer);
+ $("gpsBadge").textContent="GPS ±"+Math.round(accuracy)+" m";
+ if(!state.edges.length||!watchId||accuracy>25)return;
+ const prev=state.track[state.track.length-1];if(prev&&distance(prev,at)<5)return;
+ state.track.push(at);if(state.track.length>10000)state.track=state.track.slice(-9000);
+ let changed=false;
+ for(let e of state.edges){if(state.done[e.id])continue;const point=distToSegment(at,e.p,e.q);if(point.meters>12)continue;const bins=Math.max(2,Math.ceil(e.len/12));let bucket=Math.min(bins-1,Math.floor(point.fraction*bins)),samples=state.samples[e.id]||[];if(!samples.includes(bucket)){samples.push(bucket);state.samples[e.id]=samples;changed=true}if(samples.length/bins>=.75){state.done[e.id]=true;changed=true}}
+ if(changed)draw();deferredSave();
+}
+function gpsError(error){say("GPS-Fehler: "+error.message+". Standortzugriff in Safari erlauben.");stopGPS()}
+function stopGPS(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}$("gpsBtn").textContent="◎ GPS starten";$("gpsBadge").textContent="GPS aus";save()}
+function toggleGPS(){
+ if(watchId!==null){stopGPS();say("GPS gestoppt. Fortschritt gespeichert.");return}
+ if(!navigator.geolocation){say("Dieser Browser unterstützt GPS nicht.");return}
+ watchId=navigator.geolocation.watchPosition(recordPosition,gpsError,{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+ $("gpsBtn").textContent="■ GPS stoppen";$("gpsBadge").textContent="GPS aktiv";say("GPS läuft, solange die App aktiv ist. Bei gesperrtem iPhone kann die Aufzeichnung stoppen. Kontrolle: Grün markierte Straßen manuell prüfen.")
+}
+function locate(){if(!navigator.geolocation){say("Standort nicht verfügbar.");return}navigator.geolocation.getCurrentPosition(p=>{recordPosition(p);map.setView([p.coords.latitude,p.coords.longitude],17)},gpsError,{enableHighAccuracy:true,timeout:15000})}
+function fit(){if(areaRect)map.fitBounds(areaRect.getBounds(),{padding:[20,20]});else if(lastCoord)map.setView(lastCoord,16)}
+function exportData(){save();let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="flyerroute-sicherung-"+new Date().toISOString().slice(0,10)+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),30000)}
+async function importData(e){let file=e.target.files?.[0];if(!file)return;try{let v=JSON.parse(await file.text());if(v.version!==1||!Array.isArray(v.edges)||!Array.isArray(v.route)||!v.done)throw Error("Ungültiges Sicherungsformat");if(!confirm("Aktuelle Tour mit der Sicherung überschreiben?"))return;stopGPS();state=v;save();draw();fit();say("Sicherung importiert.")}catch(err){say("Import fehlgeschlagen: "+err.message)}finally{e.target.value=""}}
+function clear(){if(!confirm("Tour, GPS-Verlauf und Fortschritt auf diesem Gerät löschen? Vorher ggf. exportieren."))return;stopGPS();state=empty();save();draw();say("Alles gelöscht. Neues Gebiet auswählen.")}
+if(!window.L){$("status").textContent="Leaflet-Karte konnte nicht geladen werden. Bitte Internetverbindung oder Content-Blocker prüfen.";return}
+map=L.map("map",{zoomControl:true}).setView([50.006,8.005],16);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+roadLayer=L.layerGroup().addTo(map);guideLayer=L.layerGroup().addTo(map);gpsLayer=L.layerGroup().addTo(map);map.on("click",onMapClick);
+$("areaBtn").onclick=chooseArea;$("planBtn").onclick=plan;$("gpsBtn").onclick=toggleGPS;$("locBtn").onclick=locate;$("fitBtn").onclick=fit;$("exportBtn").onclick=exportData;$("importBtn").onclick=()=>$("importFile").click();$("importFile").onchange=importData;$("clearBtn").onclick=clear;
+draw();if(state.bounds)fit();document.addEventListener("visibilitychange",()=>{if(document.hidden)save();else map.invalidateSize()});window.addEventListener("pagehide",save);
+})();
+</script></body></html>

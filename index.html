@@ -1,8 +1,25 @@
 <!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#234b38"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="FlyerRoute"><title>FlyerRoute · prāṇa</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/icon.svg">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoT2wJvY0dI+Z0=" crossorigin="">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href=\'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\'">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#243d30;background:#f7f7f1}*{box-sizing:border-box}body{margin:0}header{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 11px) 15px 10px;background:#234b38;color:white}h1{font-size:20px;margin:0}header small{opacity:.77}button,input{font:inherit}button{border:0;background:#285f45;color:white;padding:12px;border-radius:11px;font-size:14px;font-weight:650;cursor:pointer}button:disabled{opacity:.4}button.light{background:#e4eee3;color:#26543a}button.orange{background:#bf6e2f}button.red{background:#a4473c}#map{height:53dvh;height:53vh;min-height:280px;background:#e7eee4}.panel{padding:12px 13px 24px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:12px 0}.stat{background:white;border-radius:12px;text-align:center;padding:10px 2px;box-shadow:0 1px 5px #1d392211}.stat b{display:block;font-size:19px}.stat span{font-size:11px;color:#5c7062}.progress{height:9px;border-radius:99px;background:#d9e6d9;overflow:hidden}.progress div{background:#37a36a;height:100%;width:0;transition:width .2s}#status{font-size:13px;line-height:1.45;min-height:30px;color:#45614e;margin:10px 2px}#details{color:#627269;font-size:12px;line-height:1.5;margin:7px 2px}.tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.tools button{font-size:12px;padding:9px}.legend{font-size:12px;color:#5e6e63;margin-top:8px}dialog{border:0;border-radius:15px;max-width:min(90vw,420px);padding:18px;box-shadow:0 5px 40px #0005}dialog::backdrop{background:#0006}#map .leaflet-control-attribution{font-size:9px}#map .leaflet-container{touch-action:pan-x pan-y} .pill{font-size:12px;border-radius:99px;padding:5px 8px;background:#f1e2ca;color:#855321}a{color:#235c43}
+
+/* Essential Leaflet positioning kept local so tiles never cover the controls if CDN CSS fails. */
+#map{position:relative!important;overflow:hidden!important;isolation:isolate;width:100%;touch-action:pan-x pan-y}
+.leaflet-container{position:relative;overflow:hidden;outline:0;background:#e7eee4}
+.leaflet-pane,.leaflet-map-pane,.leaflet-tile-pane,.leaflet-overlay-pane,.leaflet-shadow-pane,.leaflet-marker-pane,.leaflet-tooltip-pane,.leaflet-popup-pane{position:absolute;left:0;top:0}
+.leaflet-pane{z-index:400}.leaflet-tile-pane{z-index:200}.leaflet-overlay-pane{z-index:400}.leaflet-shadow-pane{z-index:500}.leaflet-marker-pane{z-index:600}.leaflet-tooltip-pane{z-index:650}.leaflet-popup-pane{z-index:700}
+.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-pane>svg,.leaflet-pane>canvas{position:absolute;left:0;top:0}
+.leaflet-tile{width:256px;height:256px;max-width:none!important;max-height:none!important;visibility:inherit}
+.leaflet-container img{max-width:none!important;max-height:none!important}
+.leaflet-tile-container{position:absolute;left:0;top:0;pointer-events:none}
+.leaflet-zoom-animated{transform-origin:0 0}
+.leaflet-control{position:relative;z-index:800;pointer-events:auto}
+.leaflet-top,.leaflet-bottom{position:absolute;z-index:1000;pointer-events:none}.leaflet-top{top:0}.leaflet-right{right:0}.leaflet-bottom{bottom:0}.leaflet-left{left:0}
+.leaflet-top .leaflet-control{margin-top:10px}.leaflet-left .leaflet-control{margin-left:10px}.leaflet-bottom .leaflet-control{margin-bottom:10px}.leaflet-right .leaflet-control{margin-right:10px}
+.leaflet-control-zoom a{display:block;width:30px;height:30px;line-height:30px;text-align:center;background:#fff;color:#222;text-decoration:none;font-size:20px}
+.leaflet-control-attribution{background:#ffffffc9;padding:2px 5px;font-size:10px}
+header,.panel{position:relative;z-index:1}
 </style></head><body>
 <header><div><h1>🌿 FlyerRoute</h1><small>prāṇa · Flyer verteilen</small></div><span id="gpsBadge" class="pill">GPS aus</span></header>
 <div id="map" role="application" aria-label="Interaktive Karte"></div>

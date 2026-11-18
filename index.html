@@ -38,6 +38,7 @@ header,.panel{position:relative;z-index:1}
 <p class="privacy-note">Nur auf diesem Gerät gespeichert. GPS erfasst nur bei geöffneter App zuverlässig; das Begehen eines Straßenabschnitts bedeutet nicht zwangsläufig, dass dort Flyer eingeworfen wurden. Bitte nur öffentlich zugängliche Wege betreten.</p>
 </section>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/planner.js"></script>
 <script>
 (()=>{
 "use strict";
@@ -97,7 +98,7 @@ async function plan(){
  if(areaSq(state.bounds)>0.8){say("Bitte ein kleineres Gebiet auswählen (maximal 0,8 km² pro Tour).");return}
  if(state.edges.length&&!confirm("Bestehende Tour samt Fortschritt ersetzen?"))return;
  $("planBtn").disabled=true;say("Straßen werden von OpenStreetMap geladen …");
- try{let json=await overpass(state.bounds),edges=parseOSM(json),route=computeRoute(edges);state={...state,edges,route,done:{},samples:{},track:[],created:new Date().toISOString()};save();draw();say("Tour berechnet! GPS starten und loslaufen. Die Reihenfolge ist eine Näherung; bei getrennten Wegen können zusätzliche Verbindungen nötig sein.");map.fitBounds(areaRect.getBounds())}
+ try{let json=await overpass(state.bounds),edges=parseOSM(json),route=window.FlyerPlanner.plan(edges,lastCoord);state={...state,edges,route,done:{},samples:{},track:[],created:new Date().toISOString()};save();draw();say("Straßenabdeckung berechnet! Alle ausgewählten Straßen sind in der Route enthalten. Blau zeigt die Laufrichtung inklusive nötiger Wiederholungen; zwischen getrennten Straßennetzen ist ein zusätzlicher Fußweg nötig.");map.fitBounds(areaRect.getBounds())}
  catch(e){say("Fehler: "+e.message)}finally{$("planBtn").disabled=false}
 }
 function chooseArea(){areaChoosing=true;corners=[];say("Tippe nacheinander zwei gegenüberliegende Ecken auf der Karte. Karte kann dazwischen verschoben werden.")}
